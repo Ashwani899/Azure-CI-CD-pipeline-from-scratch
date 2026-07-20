@@ -1,0 +1,90 @@
+# Azure Pipelines CI/CD definition
+#
+# Flow: push to main -> run tests -> build Docker image -> push to ACR -> deploy to App Service
+#
+# Before this pipeline works, set up in Azure DevOps > Project Settings > Service connections:
+#   1. "acr-service-connection"      -> Docker Registry connection, pointed at your ACR
+#   2. "azure-subscription-connection" -> Azure Resource Manager connection to your subscription
+#
+# And define these pipeline variables (Pipelines > Edit > Variables):
+#   acrName          e.g. myprojectacr
+#   webAppName       e.g. my-cicd-demo-app
+#   resourceGroup    e.g. cicd-demo-rg
+
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  imageRepository: 'azure-cicd-demo'
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  tag: '$(Build.BuildId)'
+
+stages:
+
+  # ---------------------------------------------------------
+  # Stage 1: Run tests before we even bother building anything
+  # ---------------------------------------------------------
+  - stage: Test
+    displayName: 'Run unit tests'
+    jobs:
+      - job: RunTests
+        steps:
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.11'
+            displayName: 'Set Python version'
+
+          - script: |
+              cd app
+              pip install -r requirements.txt
+              pip install pytest
+              pytest test_main.py -v
+            displayName: 'Install deps and run pytest'
+
+  # ---------------------------------------------------------
+  # Stage 2: Build the image and push it to Azure Container Registry
+  # ---------------------------------------------------------
+  - stage: BuildAndPush
+    displayName: 'Build and push image to ACR'
+    dependsOn: Test
+    condition: succeeded()
+    jobs:
+      - job: BuildAndPush
+        steps:
+          - task: Docker@2
+            displayName: 'Build and push Docker image'
+            inputs:
+              containerRegistry: 'acr-service-connection'
+              repository: '$(imageRepository)'
+              command: 'buildAndPush'
+              Dockerfile: '$(dockerfilePath)'
+              tags: |
+                $(tag)
+                latest
+              arguments: '--build-arg BUILD_ID=$(Build.BuildId) --build-arg BUILD_TIME=$(Build.StartTime)'
+
+  # ---------------------------------------------------------
+  # Stage 3: Deploy the freshly pushed image to Azure App Service
+  # ---------------------------------------------------------
+  - stage: Deploy
+    displayName: 'Deploy to Azure App Service'
+    dependsOn: BuildAndPush
+    condition: succeeded()
+    jobs:
+      - deployment: DeployWebApp
+        environment: 'production'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureWebAppContainer@1
+                  displayName: 'Deploy image to App Service'
+                  inputs:
+                    azureSubscription: 'azure-subscription-connection'
+                    appName: '$(webAppName)'
+                    containers: '$(acrName).azurecr.io/$(imageRepository):$(tag)'
