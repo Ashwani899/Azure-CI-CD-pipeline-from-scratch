@@ -1,100 +1,92 @@
-# Azure CI/CD Pipeline — Containerized Web App
+# Azure CI/CD Pipeline — Containerized Flask Application
 
-A small Flask web app that exists mainly as a vehicle to build a **real, working CI/CD pipeline on Azure** — from a `git push` to a live deployment, with zero manual steps in between.
+A small Flask application used to demonstrate an Azure DevOps delivery pipeline: run tests, build a Docker image, push it to Azure Container Registry (ACR), and deploy the tagged image to Azure App Service.
 
-I wanted to actually understand what happens between "I fixed a bug" and "the fix is live," instead of just knowing the buzzwords. This project is that: Azure Pipelines building and testing the code, Azure Container Registry storing the image, and Azure App Service running it.
+## Pipeline flow
 
-## What it does
-
-Push to `main` → tests run automatically → app gets containerized → image gets pushed to ACR → App Service pulls the new image and redeploys. The homepage shows the build ID and build time it was deployed with, so I can visually confirm each deployment actually picked up the latest commit instead of silently serving a stale container.
-
-## Architecture
-
-```
-GitHub repo
-    │  (push to main)
-    ▼
+```text
+Git push
+   |
 Azure Pipelines
-    │  Stage 1: run pytest
-    │  Stage 2: docker build → push to ACR
-    │  Stage 3: deploy image → Azure App Service
-    ▼
-Azure Container Registry  ──image pull──▶  Azure App Service (live app)
+   |-- Test (pytest)
+   |-- Build Docker image and tag with Build.BuildId
+   |-- Push image to ACR
+   '-- Deploy image to Azure App Service
 ```
 
-Build and deploy are split into separate pipeline stages on purpose. If a deployment fails, I don't need to rebuild the image to retry — I can just re-run the deploy stage against the image that's already sitting in ACR.
+Build and deployment are separate stages so a deployment can be retried against an already-built image. Use immutable build identifiers for traceability; do not rely only on a mutable `latest` tag.
 
 ## Stack
 
-- **App:** Python (Flask) + Gunicorn
-- **Containerization:** Docker
-- **CI/CD:** Azure Pipelines (YAML)
-- **Registry:** Azure Container Registry (ACR)
-- **Hosting:** Azure App Service (Web App for Containers)
+- Python / Flask / Gunicorn
+- Docker
+- Azure Pipelines YAML
+- Azure Container Registry
+- Azure App Service for Containers
+- pytest
 
-## Repo structure
+## Repository layout
 
+```text
+app/
+  main.py
+  test_main.py
+  requirements.txt
+  templates/
+  static/
+Dockerfile
+azure-pipelines.yml
 ```
-.
-├── app/
-│   ├── main.py              # Flask app
-│   ├── test_main.py         # pytest unit tests run in the CI stage
-│   ├── requirements.txt
-│   ├── templates/index.html
-│   └── static/style.css
-├── Dockerfile
-├── azure-pipelines.yml      # the actual pipeline definition
-└── README.md
-```
 
-## Running it locally
+## Run locally
 
 ```bash
 cd app
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 python main.py
-# visit http://localhost:8000
 ```
 
-Or with Docker:
+Open `http://localhost:8000`.
+
+## Run with Docker
+
+From the repository root:
 
 ```bash
 docker build -t azure-cicd-demo .
-docker run -p 8000:8000 azure-cicd-demo
+docker run --rm -p 8000:8000 azure-cicd-demo
 ```
 
-## Setting up the pipeline yourself
+## Configure Azure DevOps
 
-If you're cloning this to reproduce the setup:
+The pipeline expects Azure resources and service connections to be configured in your own subscription:
 
-1. **Create the Azure resources**
-   - An Azure Container Registry (`az acr create ...`)
-   - An App Service plan + Web App configured for containers (`az webapp create ... --deployment-container-image-name ...`)
+1. Create an Azure Container Registry and an App Service configured for a container image.
+2. Connect the repository to an Azure DevOps project.
+3. Create the Docker Registry service connection referenced by the YAML.
+4. Create an Azure Resource Manager service connection referenced by the YAML.
+5. Configure the variable names used by `azure-pipelines.yml` (registry name, App Service name, resource group, and service-connection identifiers).
+6. Run the pipeline and verify the Test, Build/Push, and Deploy stages in Azure DevOps.
 
-2. **Create an Azure DevOps project** and import this repo (or connect it via GitHub).
+Exact service-connection and variable names must match the checked-in pipeline. Never commit service principal secrets, publish profiles, registry passwords, or subscription credentials.
 
-3. **Set up two service connections** (Project Settings → Service connections):
-   - `acr-service-connection` — Docker Registry type, pointing at your ACR
-   - `azure-subscription-connection` — Azure Resource Manager type, pointing at your subscription
+## Operational considerations
 
-4. **Add pipeline variables** (Pipelines → Edit → Variables):
-   - `acrName` — your ACR name (without `.azurecr.io`)
-   - `webAppName` — your App Service name
-   - `resourceGroup` — the resource group both live in
+- Restrict service connections to the required project and resource scope.
+- Prefer managed identity and least-privilege RBAC where supported.
+- Add a staging slot and health-gated slot swap before using this pattern for a production workload.
+- Pin base images and dependency versions, scan container images, and retain a rollback image.
+- Confirm that the deployed App Service image tag matches the pipeline build ID.
 
-5. **Create a new pipeline**, point it at `azure-pipelines.yml`, and run it.
+## Evidence and status
 
-6. Push a commit to `main` and watch the three stages (Test → Build & Push → Deploy) run in sequence.
+This repository contains the pipeline definition and application code. A successful deployment depends on external Azure resources, service connections, and variables; no live endpoint is claimed by this README. Add sanitized run links or screenshots only after a real pipeline run has succeeded.
 
-## Things I ran into while building this
+## Next steps
 
-- **Service connections are the part nobody warns you about.** The pipeline YAML is the easy 20%; getting Azure DevOps and Azure to actually trust each other (RBAC roles, ACR admin access, the AzureRM connection scope) is where most of the actual debugging happened.
-- **Splitting build/push from deploy into separate stages** made failures way less painful — a bad App Service config no longer means rebuilding the whole image to test a fix.
-- **Tagging images with `$(Build.BuildId)`** instead of just `latest` was the single most useful decision — it means every deployment is traceable back to an exact pipeline run and commit, which matters the moment something breaks in production and you need to know what actually shipped.
-- **`/health` endpoint** exists because App Service and any future monitoring needs something machine-checkable, not just "does the homepage render."
-
-## What I'd add next
-
-- A staging slot on App Service with slot-swap deployment instead of deploying straight to production
-- Azure Monitor / Application Insights wired in for real telemetry instead of just checking the DevOps dashboard manually
-- Branch policies requiring the Test stage to pass before merging to `main`
+- Add branch protection and require tests before merging to `main`.
+- Add container vulnerability scanning and artifact retention.
+- Add a staging environment and rollback procedure.
