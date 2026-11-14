@@ -1,0 +1,44 @@
+name: Azure CI/CD sample checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: app/requirements.txt
+      - name: Install application and test dependencies
+        working-directory: app
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+      - name: Run Flask tests
+        working-directory: app
+        run: python -m pytest -q
+      - name: Build container image
+        run: docker build --build-arg BUILD_ID=ci-${{ github.run_number }} --build-arg BUILD_TIME=${{ github.run_started_at }} -t azure-cicd-demo:ci .
+      - name: Smoke-test container endpoints
+        run: |
+          docker run -d --rm --name azure-cicd-demo -p 8000:8000 azure-cicd-demo:ci
+          trap 'docker stop azure-cicd-demo >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:8000/health
+          curl --fail --silent http://127.0.0.1:8000/ | grep -q "ci-${{ github.run_number }}"

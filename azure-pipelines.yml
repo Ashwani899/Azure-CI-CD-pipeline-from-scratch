@@ -57,16 +57,26 @@ stages:
       - job: BuildAndPush
         steps:
           - task: Docker@2
-            displayName: 'Build and push Docker image'
+            displayName: 'Build Docker image with pipeline metadata'
             inputs:
               containerRegistry: 'acr-service-connection'
               repository: '$(imageRepository)'
-              command: 'buildAndPush'
+              command: 'build'
               Dockerfile: '$(dockerfilePath)'
               tags: |
                 $(tag)
                 latest
-              arguments: '--build-arg BUILD_ID=$(Build.BuildId) --build-arg BUILD_TIME=$(Build.StartTime)'
+              arguments: '--build-arg BUILD_ID=$(Build.BuildId) --build-arg BUILD_TIME=$(Build.QueuedTime)'
+
+          - task: Docker@2
+            displayName: 'Push image tags to ACR'
+            inputs:
+              containerRegistry: 'acr-service-connection'
+              repository: '$(imageRepository)'
+              command: 'push'
+              tags: |
+                $(tag)
+                latest
 
   # ---------------------------------------------------------
   # Stage 3: Deploy the freshly pushed image to Azure App Service

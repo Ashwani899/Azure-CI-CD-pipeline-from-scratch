@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A small Flask application deployed through an Azure CI/CD pipeline.">
+  <title>Azure CI/CD Demo</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="card">
+    <p class="eyebrow">DEPLOYMENT DEMO</p>
+    <h1>Build, ship, verify.</h1>
+    <p class="intro">This Flask service is packaged as a container and deployed through an Azure DevOps pipeline.</p>
+    <dl class="metadata">
+      <div><dt>Build ID</dt><dd>{{ build_id }}</dd></div>
+      <div><dt>Build time</dt><dd>{{ build_time }}</dd></div>
+      <div><dt>Health endpoint</dt><dd><a href="/health">/health</a></dd></div>
+    </dl>
+  </main>
+</body>
+</html>
