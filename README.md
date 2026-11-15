@@ -81,9 +81,13 @@ Exact service-connection and variable names must match the checked-in pipeline. 
 - Pin base images and dependency versions, scan container images, and retain a rollback image.
 - Confirm that the deployed App Service image tag matches the pipeline build ID.
 
+## GitHub Actions validation
+
+The separate GitHub Actions workflow runs the Flask tests, builds the Docker image, starts a container, and checks the `/health` endpoint and build metadata on pushes and pull requests to `main`. This validates the sample application and container in CI; it does **not** run the Azure DevOps pipeline or deploy to an Azure subscription.
+
 ## Evidence and status
 
-This repository contains the pipeline definition and application code. A successful deployment depends on external Azure resources, service connections, and variables; no live endpoint is claimed by this README. Add sanitized run links or screenshots only after a real pipeline run has succeeded.
+This repository contains the Azure Pipelines definition and application code. A successful deployment depends on external Azure resources, service connections, and variables; no live Azure deployment or public endpoint is claimed by this README. Add sanitized Azure DevOps run links or screenshots only after a real pipeline run has succeeded.
 
 ## Next steps
 
